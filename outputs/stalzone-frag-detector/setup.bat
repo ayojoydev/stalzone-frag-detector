@@ -6,10 +6,10 @@ echo Creating Python environment...
 python -m venv .venv || goto :error
 
 echo Installing dependencies...
-".venv\Scripts\python.exe" -m pip install -r requirements.txt || goto :error
+".venv\Scripts\python.exe" -m pip install --editable ".[dev]" || goto :error
 
 echo.
-echo Setup complete. Drag a video onto run_detector.bat.
+echo Setup complete. Activate .venv or drag a video onto run_detector.bat.
 pause
 exit /b 0
 

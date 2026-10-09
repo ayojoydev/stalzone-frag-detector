@@ -14,7 +14,7 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 
-".venv\Scripts\python.exe" stalzone_frag_detector.py "%~1" --clips --debug
+".venv\Scripts\SZFD.exe" --input "%~1" --clips --debug
 set "taskExitCode=%ERRORLEVEL%"
 
 echo.

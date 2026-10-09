@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from stalzone_frag_detector import Detection, cluster_detections, format_timecode, parse_roi
+from szfd.cli import Detection, cluster_detections, format_timecode, parse_roi
 
 
 def detection(seconds: float, score: float = 0.8) -> Detection:

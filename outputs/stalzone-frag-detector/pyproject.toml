@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stalzone-frag-detector"
+version = "0.2.0"
+description = "Detect Stalzone kill plaques and save frag timecodes"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "imageio-ffmpeg>=0.6.0,<0.7",
+    "numpy>=2.1,<3",
+    "opencv-python-headless>=4.10,<5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9"]
+
+[project.scripts]
+SZFD = "szfd.cli:main"
+szfd = "szfd.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["szfd*"]
+
+[tool.setuptools.package-data]
+szfd = ["assets/*.png"]

@@ -5,47 +5,55 @@
 
 ## Установка
 
-Нужен Python 3.10 или новее. В PowerShell из папки проекта:
+Нужен Python 3.10 или новее. На Windows достаточно один раз запустить `setup.bat`.
+Для ручной установки в PowerShell:
 
 ```powershell
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --editable ".[dev]"
 ```
 
-Пакет `imageio-ffmpeg` поставляет FFmpeg для нарезки, поэтому отдельная системная
+После активации `.venv` доступны команды `SZFD` и `szfd`. Пакет
+`imageio-ffmpeg` поставляет FFmpeg для нарезки, поэтому отдельная системная
 установка обычно не нужна.
 
-На Windows можно просто запустить `setup.bat` один раз, а затем перетащить видео
-мышью на `run_detector.bat`. Такой запуск сразу сохраняет отладочные кадры и режет
-клипы без пережатия.
+Видео также можно перетащить мышью на `run_detector.bat`. Такой запуск сразу
+сохраняет отладочные кадры и режет клипы без пережатия.
 
 ## Запуск
 
-Только найти события и сохранить таймкоды:
+Найти события и сохранить таймкоды рядом с видео:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\match.mp4"
+SZFD --input "D:\Video\match.mp4"
+```
+
+Результатом будет файл `D:\Video\match_fragtime.csv`.
+
+Сохранить CSV в другом каталоге:
+
+```powershell
+SZFD --input "D:\Video\match.mp4" --output "D:\FragTimeCodes"
 ```
 
 Найти события, сохранить проверочные кадры и нарезать по 12 секунд с каждой стороны:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\match.mp4" --debug --clips
+SZFD --input "D:\Video\match.mp4" --debug --clips
 ```
 
 Клипы без пережатия создаются по умолчанию. Начало может сместиться к ближайшему
 ключевому кадру. Для точных границ с перекодированием:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\match.mp4" --clips --cut-mode exact
+SZFD --input "D:\Video\match.mp4" --clips --cut-mode exact
 ```
 
-Результаты появятся в папке `match_frags` рядом с видео:
+CSV всегда называется `<имя видео>_fragtime.csv`. При включении дополнительных
+результатов рядом создаётся папка `<имя видео>_frags`:
 
-- `timecodes.txt` — короткий список таймкодов;
-- `detections.csv` — таблица событий;
-- `report.json` — полный отчёт и использованные параметры;
+- `match_fragtime.csv` — таблица событий и таймкодов;
 - `debug/` — кадры с зелёной рамкой при `--debug`;
 - `clips/` — нарезанные фрагменты при `--clips`.
 
@@ -58,13 +66,13 @@ python stalzone_frag_detector.py "D:\Video\match.mp4" --clips --cut-mode exact
 на один проверенный кадр:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\match.mp4" --frame-step 10 --min-hits 1
+SZFD --input "D:\Video\match.mp4" --frame-step 10 --min-hits 1
 ```
 
 Если есть ложные срабатывания, поднимите порог с `0.72` до `0.78` или `0.82`:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\match.mp4" --threshold 0.78 --debug
+SZFD --input "D:\Video\match.mp4" --threshold 0.78 --debug
 ```
 
 Область поиска задаётся нормализованными координатами `x1,y1,x2,y2`. Стандартное
@@ -73,7 +81,7 @@ python stalzone_frag_detector.py "D:\Video\match.mp4" --threshold 0.78 --debug
 Одиночный скриншот можно использовать для проверки настроек:
 
 ```powershell
-python stalzone_frag_detector.py "D:\Video\frame.png" --debug
+SZFD --input "D:\Video\frame.png" --debug
 ```
 
 Код возврата `0` означает, что плашка найдена; `2` — не найдена.
@@ -81,6 +89,8 @@ python stalzone_frag_detector.py "D:\Video\frame.png" --debug
 ## Полезные параметры
 
 ```text
+--input PATH            исходное видео или проверочный скриншот
+--output PATH           каталог для CSV и дополнительных результатов
 --frame-step N          проверять каждый N-й кадр
 --threshold VALUE       порог совпадения шаблона, 0..1
 --roi X1,Y1,X2,Y2       область поиска в долях размера кадра
@@ -88,7 +98,6 @@ python stalzone_frag_detector.py "D:\Video\frame.png" --debug
 --min-hits N            минимум проверенных кадров на событие
 --before SECONDS        длина клипа до события
 --after SECONDS         длина клипа после события
---output PATH           отдельная папка результатов
 --ffmpeg PATH           явный путь к ffmpeg.exe
 ```
 
