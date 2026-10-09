@@ -11,6 +11,7 @@ from szfd.cli import (
     format_timecode,
     group_events_for_clips,
     parse_roi,
+    resolve_output_paths,
 )
 
 
@@ -38,6 +39,18 @@ def test_format_timecode() -> None:
 
 def test_parse_roi() -> None:
     assert parse_roi("0.1,0.2,0.8,0.9") == (0.1, 0.2, 0.8, 0.9)
+
+
+def test_cut_places_csv_inside_frag_artifacts_directory() -> None:
+    input_path = Path("D:/Video/match.mp4")
+
+    plain_csv, artifacts_dir = resolve_output_paths(input_path, None, cut=False)
+    cut_csv, cut_artifacts_dir = resolve_output_paths(input_path, None, cut=True)
+
+    assert plain_csv == Path("D:/Video/match_fragtime.csv")
+    assert artifacts_dir == Path("D:/Video/match_frags")
+    assert cut_csv == Path("D:/Video/match_frags/match_fragtime.csv")
+    assert cut_artifacts_dir == artifacts_dir
 
 
 def test_cluster_deduplicates_one_plaque() -> None:

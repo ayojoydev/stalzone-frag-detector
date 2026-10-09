@@ -22,7 +22,7 @@ DEFAULT_ROI = (0.36, 0.68, 0.64, 0.86)
 DEFAULT_DEATH_ROI = (0.08, 0.07, 0.35, 0.28)
 REFERENCE_HEIGHT = 1079
 SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5)
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 
 
 @dataclass(frozen=True)
@@ -706,14 +706,28 @@ def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         parser.error("--multifrag-gap must be non-negative")
 
 
+def resolve_output_paths(
+    input_path: Path,
+    output: Path | None,
+    cut: bool,
+) -> tuple[Path, Path]:
+    output_root = output or input_path.parent
+    artifacts_dir = output_root / f"{input_path.stem}_frags"
+    csv_dir = artifacts_dir if cut else output_root
+    csv_path = csv_dir / f"{input_path.stem}_fragtime.csv"
+    return csv_path, artifacts_dir
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     validate_args(args, parser)
 
-    output_root = args.output or args.input.parent
-    csv_path = output_root / f"{args.input.stem}_fragtime.csv"
-    artifacts_dir = output_root / f"{args.input.stem}_frags"
+    csv_path, artifacts_dir = resolve_output_paths(
+        args.input,
+        args.output,
+        args.cut,
+    )
     detector = PlaqueDetector(args.template, args.roi, args.threshold)
     death_detector = PlaqueDetector(
         args.death_template,
