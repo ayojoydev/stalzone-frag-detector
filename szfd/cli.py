@@ -10,7 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
 
 import cv2
 import numpy as np
@@ -21,7 +21,7 @@ IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 DEFAULT_ROI = (0.36, 0.68, 0.64, 0.86)
 REFERENCE_HEIGHT = 1079
 SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5)
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,14 @@ class Event:
     score: float
     hits: int
     best_detection: Detection
+
+
+@dataclass(frozen=True)
+class ClipGroup:
+    index: int
+    events: tuple[Event, ...]
+    start_seconds: float
+    end_seconds: float
 
 
 def parse_roi(value: str) -> tuple[float, float, float, float]:
@@ -288,12 +296,33 @@ def save_debug_image(frame: np.ndarray, detection: Detection, output_dir: Path) 
     cv2.imwrite(str(debug_dir / "image_check.jpg"), preview)
 
 
-def write_csv_report(csv_path: Path, events: Sequence[Event]) -> None:
+def write_csv_report(
+    csv_path: Path,
+    events: Sequence[Event],
+    clip_groups: Sequence[ClipGroup],
+) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
+    group_by_event = {
+        event.index: (group.index, len(group.events))
+        for group in clip_groups
+        for event in group.events
+    }
     with csv_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["event", "seconds", "timecode", "score", "hits", "last_seconds"])
+        writer.writerow(
+            [
+                "event",
+                "seconds",
+                "timecode",
+                "score",
+                "hits",
+                "last_seconds",
+                "clip_group",
+                "group_size",
+            ]
+        )
         for event in events:
+            group_index, group_size = group_by_event[event.index]
             writer.writerow(
                 [
                     event.index,
@@ -302,8 +331,47 @@ def write_csv_report(csv_path: Path, events: Sequence[Event]) -> None:
                     f"{event.score:.4f}",
                     event.hits,
                     f"{event.last_seconds:.3f}",
+                    group_index,
+                    group_size,
                 ]
             )
+
+
+def group_events_for_clips(
+    events: Sequence[Event],
+    duration: float,
+    before: float,
+    after: float,
+    multifrag_gap: float,
+) -> list[ClipGroup]:
+    if not events:
+        return []
+
+    grouped_events: list[list[Event]] = []
+    for event in sorted(events, key=lambda item: item.seconds):
+        if (
+            not grouped_events
+            or event.seconds - grouped_events[-1][-1].seconds > multifrag_gap
+        ):
+            grouped_events.append([event])
+        else:
+            grouped_events[-1].append(event)
+
+    groups: list[ClipGroup] = []
+    for index, group in enumerate(grouped_events, start=1):
+        start = max(0.0, group[0].seconds - before)
+        end = group[-1].seconds + after
+        if duration > 0:
+            end = min(duration, end)
+        groups.append(
+            ClipGroup(
+                index=index,
+                events=tuple(group),
+                start_seconds=start,
+                end_seconds=end,
+            )
+        )
+    return groups
 
 
 def find_ffmpeg(explicit_path: str | None) -> str:
@@ -334,23 +402,24 @@ def cut_clips(
     ffmpeg: str,
     input_path: Path,
     output_dir: Path,
-    events: Iterable[Event],
-    duration: float,
-    before: float,
-    after: float,
+    groups: Sequence[ClipGroup],
     cut_mode: str,
 ) -> None:
     clips_dir = output_dir / "clips"
     clips_dir.mkdir(parents=True, exist_ok=True)
 
-    for event in events:
-        start = max(0.0, event.seconds - before)
-        end = event.seconds + after
-        if duration > 0:
-            end = min(duration, end)
-        clip_duration = max(0.01, end - start)
+    for group in groups:
+        clip_duration = max(0.01, group.end_seconds - group.start_seconds)
         suffix = input_path.suffix if cut_mode == "copy" else ".mp4"
-        output_path = clips_dir / f"frag_{event.index:03d}_{format_timecode(event.seconds).replace(':', '-')}{suffix}"
+        first_timecode = format_timecode(group.events[0].seconds).replace(":", "-")
+        if len(group.events) == 1:
+            filename = f"frag_{group.index:03d}_{first_timecode}{suffix}"
+        else:
+            filename = (
+                f"multifrag_{group.index:03d}_{len(group.events)}frags_"
+                f"{first_timecode}{suffix}"
+            )
+        output_path = clips_dir / filename
 
         command = [
             ffmpeg,
@@ -359,7 +428,7 @@ def cut_clips(
             "error",
             "-y",
             "-ss",
-            f"{start:.3f}",
+            f"{group.start_seconds:.3f}",
             "-i",
             str(input_path),
             "-t",
@@ -391,7 +460,10 @@ def cut_clips(
                 ]
             )
         command.append(str(output_path))
-        print(f"Cutting clip {event.index}/{len(events) if isinstance(events, Sequence) else '?'}")
+        print(
+            f"Cutting clip {group.index}/{len(groups)} "
+            f"({len(group.events)} frag{'s' if len(group.events) != 1 else ''})"
+        )
         subprocess.run(command, check=True)
 
 
@@ -433,9 +505,35 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--merge-gap", type=float, default=1.25, help="Seconds between hits in one event")
     parser.add_argument("--min-hits", type=int, default=2, help="Required sampled frames per event")
     parser.add_argument("--debug", action="store_true", help="Save frames with marked detections")
-    parser.add_argument("--clips", action="store_true", help="Cut a clip for every event")
-    parser.add_argument("--before", type=float, default=12.0, help="Seconds before a frag")
-    parser.add_argument("--after", type=float, default=12.0, help="Seconds after a frag")
+    parser.add_argument(
+        "--cut",
+        "--clips",
+        dest="cut",
+        action="store_true",
+        help="Cut clips around detected events",
+    )
+    parser.add_argument(
+        "--cut-before",
+        "--before",
+        dest="cut_before",
+        type=float,
+        default=10.0,
+        help="Seconds before the first frag in a clip",
+    )
+    parser.add_argument(
+        "--cut-after",
+        "--after",
+        dest="cut_after",
+        type=float,
+        default=10.0,
+        help="Seconds after the last frag in a clip",
+    )
+    parser.add_argument(
+        "--multifrag-gap",
+        type=float,
+        default=10.0,
+        help="Maximum seconds between frags grouped into one clip",
+    )
     parser.add_argument(
         "--cut-mode",
         choices=("copy", "exact"),
@@ -464,8 +562,10 @@ def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         parser.error("--threshold must be in (0, 1]")
     if args.merge_gap < 0 or args.min_hits < 1:
         parser.error("--merge-gap must be non-negative and --min-hits at least 1")
-    if args.before < 0 or args.after < 0:
-        parser.error("--before and --after must be non-negative")
+    if args.cut_before < 0 or args.cut_after < 0:
+        parser.error("--cut-before and --cut-after must be non-negative")
+    if args.multifrag_gap < 0:
+        parser.error("--multifrag-gap must be non-negative")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -483,7 +583,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if is_image:
             detections, frame = scan_image(args.input, detector)
             events = cluster_detections(detections, args.merge_gap, 1)
-            write_csv_report(csv_path, events)
+            clip_groups = group_events_for_clips(
+                events,
+                duration=0,
+                before=args.cut_before,
+                after=args.cut_after,
+                multifrag_gap=args.multifrag_gap,
+            )
+            write_csv_report(csv_path, events, clip_groups)
             if args.debug and detections:
                 save_debug_image(frame, detections[0], artifacts_dir)
             if detections:
@@ -497,19 +604,23 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.input, detector, args.frame_step, args.quiet
         )
         events = cluster_detections(detections, args.merge_gap, args.min_hits)
-        write_csv_report(csv_path, events)
+        clip_groups = group_events_for_clips(
+            events,
+            duration,
+            args.cut_before,
+            args.cut_after,
+            args.multifrag_gap,
+        )
+        write_csv_report(csv_path, events, clip_groups)
         if args.debug:
             save_debug_frames(args.input, events, artifacts_dir)
-        if args.clips and events:
+        if args.cut and clip_groups:
             ffmpeg = find_ffmpeg(args.ffmpeg)
             cut_clips(
                 ffmpeg,
                 args.input,
                 artifacts_dir,
-                events,
-                duration,
-                args.before,
-                args.after,
+                clip_groups,
                 args.cut_mode,
             )
 
