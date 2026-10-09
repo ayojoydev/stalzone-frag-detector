@@ -21,7 +21,7 @@ IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 DEFAULT_ROI = (0.36, 0.68, 0.64, 0.86)
 REFERENCE_HEIGHT = 1079
 SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5)
-VERSION = "0.2.1"
+VERSION = "0.2.2"
 
 
 @dataclass(frozen=True)
@@ -421,7 +421,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to the skull template image",
     )
     parser.add_argument("-o", "--output", type=Path, help="Directory for the result")
-    parser.add_argument("--frame-step", type=int, default=15, help="Check every Nth frame")
+    parser.add_argument("--frame-step", type=int, default=30, help="Check every Nth frame")
     parser.add_argument("--threshold", type=float, default=0.72, help="Template score threshold")
     parser.add_argument(
         "--roi",
