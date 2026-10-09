@@ -19,9 +19,10 @@ from tqdm import tqdm
 
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 DEFAULT_ROI = (0.36, 0.68, 0.64, 0.86)
+DEFAULT_DEATH_ROI = (0.08, 0.07, 0.35, 0.28)
 REFERENCE_HEIGHT = 1079
 SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5)
-VERSION = "0.3.0"
+VERSION = "0.4.0"
 
 
 @dataclass(frozen=True)
@@ -173,12 +174,91 @@ def cluster_detections(
     return events
 
 
+def cluster_frame_hits(frame_indices: Sequence[int], max_gap_frames: int) -> list[int]:
+    starts: list[int] = []
+    previous: int | None = None
+    for frame_index in sorted(set(frame_indices)):
+        if previous is None or frame_index - previous > max_gap_frames:
+            starts.append(frame_index)
+        previous = frame_index
+    return starts
+
+
+def rescan_before_deaths(
+    path: Path,
+    detector: PlaqueDetector,
+    death_frames: Sequence[int],
+    fps: float,
+    seconds_before: float,
+    frame_step: int,
+    quiet: bool,
+) -> list[Detection]:
+    if not death_frames or seconds_before <= 0:
+        return []
+
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise RuntimeError(f"Cannot reopen video for death-screen rescan: {path}")
+
+    windows = [
+        (max(0, death_frame - round(seconds_before * fps)), death_frame)
+        for death_frame in death_frames
+    ]
+    progress = tqdm(
+        total=sum(end - start for start, end in windows),
+        desc="Death rewind",
+        unit="frame",
+        dynamic_ncols=True,
+        mininterval=0.2,
+        disable=quiet,
+    )
+    detections: list[Detection] = []
+    scanned_frames: set[int] = set()
+
+    try:
+        for start_frame, death_frame in windows:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+            frame_index = start_frame
+            while frame_index < death_frame:
+                ok = capture.grab()
+                if not ok:
+                    break
+                if (
+                    frame_index not in scanned_frames
+                    and (frame_index - start_frame) % frame_step == 0
+                ):
+                    ok, frame = capture.retrieve()
+                    if not ok:
+                        break
+                    scanned_frames.add(frame_index)
+                    result = detector.detect(frame)
+                    if result is not None:
+                        detections.append(
+                            Detection(
+                                frame=frame_index,
+                                seconds=frame_index / fps,
+                                score=result.score,
+                                bbox=result.bbox,
+                            )
+                        )
+                frame_index += 1
+                progress.update(1)
+    finally:
+        progress.close()
+        capture.release()
+
+    return detections
+
+
 def scan_video(
     path: Path,
     detector: PlaqueDetector,
+    death_detector: PlaqueDetector,
     frame_step: int,
+    death_rescan_seconds: float,
+    death_frame_step: int,
     quiet: bool,
-) -> tuple[list[Detection], float, float, int]:
+) -> tuple[list[Detection], float, float, int, int]:
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
         raise RuntimeError(f"Cannot open video: {path}")
@@ -191,6 +271,7 @@ def scan_video(
 
     duration = total_frames / fps if total_frames > 0 else 0.0
     detections: list[Detection] = []
+    death_hits: list[int] = []
     frame_index = 0
     progress = tqdm(
         total=total_frames if total_frames > 0 else None,
@@ -217,6 +298,10 @@ def scan_video(
                             bbox=result.bbox,
                         )
                     )
+                if death_rescan_seconds > 0:
+                    death_result = death_detector.detect(frame)
+                    if death_result is not None:
+                        death_hits.append(frame_index)
 
             frame_index += 1
             progress.update(1)
@@ -224,7 +309,23 @@ def scan_video(
         progress.close()
         capture.release()
 
-    return detections, fps, duration, total_frames
+    death_triggers = cluster_frame_hits(
+        death_hits,
+        max_gap_frames=max(frame_step * 2, round(fps * 2)),
+    )
+    detections.extend(
+        rescan_before_deaths(
+            path,
+            detector,
+            death_triggers,
+            fps,
+            death_rescan_seconds,
+            death_frame_step,
+            quiet,
+        )
+    )
+
+    return detections, fps, duration, total_frames, len(death_triggers)
 
 
 def scan_image(path: Path, detector: PlaqueDetector) -> tuple[list[Detection], np.ndarray]:
@@ -492,6 +593,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=script_dir / "assets" / "skull_template.png",
         help="Path to the skull template image",
     )
+    parser.add_argument(
+        "--death-template",
+        type=Path,
+        default=script_dir / "assets" / "death_template.png",
+        help="Path to the death-screen template image",
+    )
     parser.add_argument("-o", "--output", type=Path, help="Directory for the result")
     parser.add_argument("--frame-step", type=int, default=30, help="Check every Nth frame")
     parser.add_argument("--threshold", type=float, default=0.72, help="Template score threshold")
@@ -501,6 +608,31 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_ROI,
         metavar="X1,Y1,X2,Y2",
         help="Normalized search region",
+    )
+    parser.add_argument(
+        "--death-threshold",
+        type=float,
+        default=0.72,
+        help="Death-screen template score threshold",
+    )
+    parser.add_argument(
+        "--death-roi",
+        type=parse_roi,
+        default=DEFAULT_DEATH_ROI,
+        metavar="X1,Y1,X2,Y2",
+        help="Normalized death-screen search region",
+    )
+    parser.add_argument(
+        "--death-rescan",
+        type=float,
+        default=3.0,
+        help="Seconds to rescan before a death screen; 0 disables it",
+    )
+    parser.add_argument(
+        "--death-frame-step",
+        type=int,
+        default=1,
+        help="Check every Nth frame during a death-screen rescan",
     )
     parser.add_argument("--merge-gap", type=float, default=1.25, help="Seconds between hits in one event")
     parser.add_argument("--min-hits", type=int, default=2, help="Required sampled frames per event")
@@ -560,6 +692,12 @@ def validate_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
         parser.error("--frame-step must be at least 1")
     if not 0 < args.threshold <= 1:
         parser.error("--threshold must be in (0, 1]")
+    if not 0 < args.death_threshold <= 1:
+        parser.error("--death-threshold must be in (0, 1]")
+    if args.death_rescan < 0:
+        parser.error("--death-rescan must be non-negative")
+    if args.death_frame_step < 1:
+        parser.error("--death-frame-step must be at least 1")
     if args.merge_gap < 0 or args.min_hits < 1:
         parser.error("--merge-gap must be non-negative and --min-hits at least 1")
     if args.cut_before < 0 or args.cut_after < 0:
@@ -577,6 +715,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     csv_path = output_root / f"{args.input.stem}_fragtime.csv"
     artifacts_dir = output_root / f"{args.input.stem}_frags"
     detector = PlaqueDetector(args.template, args.roi, args.threshold)
+    death_detector = PlaqueDetector(
+        args.death_template,
+        args.death_roi,
+        args.death_threshold,
+    )
     is_image = args.input.suffix.lower() in IMAGE_SUFFIXES
 
     try:
@@ -600,8 +743,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Timecodes: {csv_path.resolve()}")
             return 0 if detections else 2
 
-        detections, _fps, duration, _total_frames = scan_video(
-            args.input, detector, args.frame_step, args.quiet
+        detections, _fps, duration, _total_frames, death_rewinds = scan_video(
+            args.input,
+            detector,
+            death_detector,
+            args.frame_step,
+            args.death_rescan,
+            args.death_frame_step,
+            args.quiet,
         )
         events = cluster_detections(detections, args.merge_gap, args.min_hits)
         clip_groups = group_events_for_clips(
@@ -625,6 +774,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         print(f"Found events: {len(events)}")
+        if death_rewinds:
+            print(f"Death-screen rewinds: {death_rewinds}")
         print(f"Timecodes: {csv_path.resolve()}")
         return 0
     except (FileNotFoundError, RuntimeError, subprocess.CalledProcessError) as exc:

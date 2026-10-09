@@ -6,6 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from szfd.cli import (
     Detection,
     Event,
+    cluster_frame_hits,
     cluster_detections,
     format_timecode,
     group_events_for_clips,
@@ -53,6 +54,11 @@ def test_cluster_splits_separate_plaques_and_filters_noise() -> None:
     hits = [detection(5.0), detection(5.25), detection(12.0), detection(20.0), detection(20.2)]
     events = cluster_detections(hits, merge_gap=1.25, min_hits=2)
     assert [event.seconds for event in events] == [5.0, 20.0]
+
+
+def test_death_screen_hits_trigger_one_rewind_per_screen() -> None:
+    hits = [90, 120, 150, 600, 630]
+    assert cluster_frame_hits(hits, max_gap_frames=60) == [90, 600]
 
 
 def test_multifrag_groups_close_events_into_one_clip() -> None:
