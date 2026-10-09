@@ -14,13 +14,14 @@ from typing import Iterable, Sequence
 
 import cv2
 import numpy as np
+from tqdm import tqdm
 
 
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 DEFAULT_ROI = (0.36, 0.68, 0.64, 0.86)
 REFERENCE_HEIGHT = 1079
 SCALE_FACTORS = (0.65, 0.75, 0.85, 0.95, 1.0, 1.05, 1.15, 1.3, 1.5)
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 
 @dataclass(frozen=True)
@@ -183,7 +184,14 @@ def scan_video(
     duration = total_frames / fps if total_frames > 0 else 0.0
     detections: list[Detection] = []
     frame_index = 0
-    last_progress = -1
+    progress = tqdm(
+        total=total_frames if total_frames > 0 else None,
+        desc="Scanning",
+        unit="frame",
+        dynamic_ncols=True,
+        mininterval=0.2,
+        disable=quiet,
+    )
 
     try:
         while capture.grab():
@@ -202,13 +210,10 @@ def scan_video(
                         )
                     )
 
-            if not quiet and total_frames > 0:
-                progress = min(100, int(frame_index * 100 / total_frames))
-                if progress >= last_progress + 10:
-                    print(f"Scanning: {progress}%")
-                    last_progress = progress
             frame_index += 1
+            progress.update(1)
     finally:
+        progress.close()
         capture.release()
 
     return detections, fps, duration, total_frames
