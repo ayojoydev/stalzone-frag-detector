@@ -12,9 +12,12 @@ from typing import Sequence
 from .api import DetectorOptions, process
 # Preserve imports used by integrations written against earlier versions.
 from .core import (
-    VERSION, DEFAULT_ROI, DEFAULT_DEATH_ROI, Detection, Event, ClipGroup,
-    PlaqueDetector, cluster_detections, cluster_frame_hits, format_timecode,
-    group_events_for_clips, parse_roi, resolve_output_paths,
+    VERSION, IMAGE_SUFFIXES, DEFAULT_ROI, DEFAULT_DEATH_ROI, REFERENCE_HEIGHT,
+    SCALE_FACTORS, Detection, Event, ClipGroup, PlaqueDetector,
+    cluster_detections, cluster_frame_hits, cut_clips, find_ffmpeg,
+    format_timecode, group_events_for_clips, parse_roi, rescan_before_deaths,
+    resolve_output_paths, save_debug_frames, save_debug_image, scan_image,
+    scan_video, write_csv_report,
 )
 
 

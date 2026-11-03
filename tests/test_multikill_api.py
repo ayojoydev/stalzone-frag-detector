@@ -92,6 +92,21 @@ def test_library_has_no_cli_or_ui_imports():
     assert completed.returncode == 0, completed.stderr
 
 
+def test_legacy_cli_imports_are_preserved():
+    from szfd import cli
+
+    names = (
+        "IMAGE_SUFFIXES", "DEFAULT_ROI", "DEFAULT_DEATH_ROI", "REFERENCE_HEIGHT",
+        "SCALE_FACTORS", "Detection", "Event", "ClipGroup", "PlaqueDetector",
+        "cluster_detections", "cluster_frame_hits", "cut_clips", "find_ffmpeg",
+        "format_timecode", "group_events_for_clips", "parse_roi",
+        "rescan_before_deaths", "resolve_output_paths", "save_debug_frames",
+        "save_debug_image", "scan_image", "scan_video", "write_csv_report",
+    )
+    for name in names:
+        assert getattr(cli, name) is getattr(core, name)
+
+
 def test_manual_cli_no_args_shows_help(capsys):
     assert manual_main([]) == 0
     assert "--multikill" in capsys.readouterr().out
