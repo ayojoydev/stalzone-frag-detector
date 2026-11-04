@@ -124,6 +124,7 @@ jobs:
         run: |
           $assets = Get-ChildItem -LiteralPath dist -File | ForEach-Object { $_.FullName }
           gh release create $env:RELEASE_TAG @assets `
+            --repo $env:GITHUB_REPOSITORY `
             --verify-tag `
             --title "SZFD $env:RELEASE_TAG" `
             --generate-notes
