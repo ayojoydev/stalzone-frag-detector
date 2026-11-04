@@ -1,6 +1,6 @@
 ; Build with Inno Setup 6 after producing dist\SZFD.exe.
 #ifndef AppVersion
-  #define AppVersion "0.6.1"
+  #define AppVersion "1.0.0"
 #endif
 [Setup]
 AppId={{47BE8653-DFA0-43EA-AD07-6AF5A9F31DCA}

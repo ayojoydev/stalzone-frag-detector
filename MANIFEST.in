@@ -1,4 +1,4 @@
-include README.md CONTRIBUTING.md requirements.txt *.bat stalzone_frag_detector.py szfd_cli.py szfd_menu.py
+include README.md CONTRIBUTING.md AGENT_INTEGRATION.md requirements.txt *.bat stalzone_frag_detector.py szfd_cli.py szfd_menu.py
 recursive-include installer *.iss
 recursive-include tests *.py
 recursive-include szfd/assets *.png
