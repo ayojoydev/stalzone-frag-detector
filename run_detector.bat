@@ -2,26 +2,21 @@
 setlocal
 cd /d "%~dp0"
 
-if "%~1"=="" (
-    echo Drag a video file onto run_detector.bat.
-    pause
-    exit /b 1
-)
-
 if not exist ".venv\Scripts\python.exe" (
-    echo Run setup.bat first.
-    pause
-    exit /b 1
+    call setup.bat
+    if errorlevel 1 exit /b 1
 )
 
-".venv\Scripts\SZFD.exe" --input "%~1" --cut --debug
+if "%~1"=="" (
+    ".venv\Scripts\python.exe" -m szfd --menu
+) else (
+    ".venv\Scripts\python.exe" -m szfd --menu --input "%~1"
+)
 set "taskExitCode=%ERRORLEVEL%"
 
-echo.
-if "%taskExitCode%"=="0" (
-    echo Done. Results are next to the source video.
-) else (
+if not "%taskExitCode%"=="0" (
+    echo.
     echo Detector exited with code %taskExitCode%.
+    pause
 )
-pause
 exit /b %taskExitCode%
