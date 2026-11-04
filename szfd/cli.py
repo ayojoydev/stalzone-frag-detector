@@ -23,7 +23,10 @@ from .core import (
 
 def build_parser() -> argparse.ArgumentParser:
     defaults = DetectorOptions()
-    parser = argparse.ArgumentParser(prog="SZFD", description="Detect Stalzone kill plaques and cut full moments.")
+    parser = argparse.ArgumentParser(
+        prog="SZFD",
+        description="Headless Stalzone frag detection for automated and AI-assisted video editing.",
+    )
     parser.add_argument("input_path", nargs="?", type=Path, help="Video or image (positional form)")
     parser.add_argument("-i", "--input", dest="input_option", type=Path, help="Video or image")
     parser.add_argument("-o", "--output", type=Path, help="Directory for results")
